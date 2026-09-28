@@ -1,8 +1,8 @@
-import bcrypt from 'bcrypt';
-import postgres from 'postgres';
-import { invoices, customers, revenue, users } from '../lib/placeholder-data';
+import bcrypt from "bcrypt";
+import postgres from "postgres";
+import { invoices, customers, revenue, users } from "../lib/placeholder-data";
 
-const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
+const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
 
 async function seedUsers() {
   await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
@@ -42,12 +42,19 @@ async function seedInvoices() {
     );
   `;
 
+  // Invoices have no fixed id, so ON CONFLICT never matches; skip rows that already exist instead
   const insertedInvoices = await Promise.all(
     invoices.map(
       (invoice) => sql`
         INSERT INTO invoices (customer_id, amount, status, date)
-        VALUES (${invoice.customer_id}, ${invoice.amount}, ${invoice.status}, ${invoice.date})
-        ON CONFLICT (id) DO NOTHING;
+        SELECT ${invoice.customer_id}::uuid, ${invoice.amount}::int, ${invoice.status}, ${invoice.date}::date
+        WHERE NOT EXISTS (
+          SELECT 1 FROM invoices
+          WHERE customer_id = ${invoice.customer_id}::uuid
+            AND amount = ${invoice.amount}::int
+            AND status = ${invoice.status}
+            AND date = ${invoice.date}::date
+        );
       `,
     ),
   );
@@ -103,14 +110,13 @@ async function seedRevenue() {
 
 export async function GET() {
   try {
-    const result = await sql.begin((sql) => [
-      seedUsers(),
-      seedCustomers(),
-      seedInvoices(),
-      seedRevenue(),
-    ]);
+    // Run sequentially: in parallel, the concurrent CREATE EXTENSION calls race and fail
+    await seedUsers();
+    await seedCustomers();
+    await seedInvoices();
+    await seedRevenue();
 
-    return Response.json({ message: 'Database seeded successfully' });
+    return Response.json({ message: "Database seeded successfully" });
   } catch (error) {
     return Response.json({ error }, { status: 500 });
   }
