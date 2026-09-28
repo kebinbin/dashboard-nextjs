@@ -130,10 +130,9 @@ export async function deleteInvoice(id: string) {
       WHERE id = ${id}
     `;
   } catch (error) {
+    // A form action must return void, so surface failures to error.tsx
     console.error("Error deleting invoice:", error);
-    return {
-      message: "Database Error: Failed to Delete Invoice.",
-    };
+    throw new Error("Database Error: Failed to Delete Invoice.");
   }
 
   console.log(`Invoice ${id} deleted`);
